@@ -13,6 +13,12 @@ EVENT_WEIGHTS = [
     (None, 0.9937),
 ]
 
+EVENT_DESCRIPTIONS = {
+    "person_appeared": "A person walks into the living room.",
+    "near_collision": "The robot almost bumps into a chair.",
+    "loud_noise": "A loud noise startles the room.",
+}
+
 def _weighted_choice(rng, options):
     kinds, weights = zip(*options)
     return rng.choices(kinds, weights=weights, k=1)[0]
@@ -41,7 +47,7 @@ def simulate(duration_sim_hours=24, minutes_per_tick=60, seed=None):
         yield clock.now_str(), kind, actions
 
 def run_simulation(duration_sim_hours=24, minutes_per_tick=60, tick_seconds=10,
-                    seed=None, speak_aloud=False):
+                    seed=None, speak_aloud=False, narrate=True):
     """Display driver: consumes simulate(), adds real-time pacing + printing."""
     import sys
     import time
@@ -60,18 +66,24 @@ def run_simulation(duration_sim_hours=24, minutes_per_tick=60, tick_seconds=10,
 
         # an event happened -- move to a fresh line for it
         sys.stdout.write("\n")
-        print(f"{time_str}, {kind.replace('_', ' ')}.")
+        description = EVENT_DESCRIPTIONS.get(kind, kind.replace("_", " "))
+        if narrate:
+            print(f"{time_str}, {description}")
+            if speak_aloud:
+                speak(description, voice="narrator")
+        else:
+            print(f"{time_str}, {kind.replace('_', ' ')}.")
+
         for action in actions:
             if action.kind == "speak":
                 print(f'    Robot says: "{action.payload}"')
                 if speak_aloud:
-                    speak(action.payload)
+                    speak(action.payload, voice="robot")
             elif action.kind == "stop":
                 motors.stop()
                 print("    Robot stops.")
 
     print("\n=== SIMULATION END ===")
-
 
 if __name__ == "__main__":
     run_simulation()
