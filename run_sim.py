@@ -5,4 +5,5 @@ run_simulation(
     minutes_per_tick=1,
     tick_seconds=2/60,
     speak_aloud=True,
+    use_llm=True,
 )
