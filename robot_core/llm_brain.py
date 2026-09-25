@@ -77,12 +77,16 @@ class LLMBrain:
         self.model = model
 
     def decide(self, event) -> list[Action]:
+        content = f"Event observed: {event.kind}"
+        if getattr(event, "detail", None):
+            content += f"\nDetail: {event.detail}"
+
         response = client.chat.completions.create(
             model=self.model,
             max_tokens=300,
             messages=[
                 {"role": "system", "content": SYSTEM_PROMPT},
-                {"role": "user", "content": f"Event observed: {event.kind}"},
+                {"role": "user", "content": content},
             ],
             tools=TOOLS,
         )
