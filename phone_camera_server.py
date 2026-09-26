@@ -153,7 +153,7 @@ PAGE = f"""
 
     // ---------- audio: voice-activity-gated recording ----------
     const SPEECH_THRESHOLD = 12;    // RMS deviation from silence; tune by ear if too sensitive/insensitive
-    const SILENCE_HANG_MS = 800;    // how long quiet has to persist before we consider the utterance done
+    const SILENCE_HANG_MS = 1200;    // how long quiet has to persist before we consider the utterance done
     const MAX_RECORD_MS = 12000;    // hard cap so one long ramble can't record forever
 
     function pickAudioMimeType() {{
