@@ -1,4 +1,5 @@
 import subprocess
+import time
 import wave
 
 OUTPUT_FILE = "/tmp/speech.wav"
@@ -23,9 +24,12 @@ def _prepend_silence(wav_path: str, silence_ms: int):
         w.setparams(params)
         w.writeframes(silence_bytes + frames)
 
-def speak(text: str, voice: str = "alan", length_scale: float = 0.75):
+
+def speak(text: str, voice: str = "alan", length_scale: float = 0.83):
     """Convert text to speech and play it through the connected speaker."""
     model_path = VOICES[voice]
+
+    t0 = time.monotonic()
     subprocess.run(
         [
             "piper",
@@ -36,5 +40,16 @@ def speak(text: str, voice: str = "alan", length_scale: float = 0.75):
         input=text.encode(),
         check=True,
     )
+    t_synth = time.monotonic() - t0
+
     _prepend_silence(OUTPUT_FILE, LEAD_SILENCE_MS)
+
+    t0 = time.monotonic()
     subprocess.run(["paplay", OUTPUT_FILE], check=True)
+    t_playback = time.monotonic() - t0
+
+    # synth = time before any sound starts (the part worth chasing).
+    # playback = how long the sentence itself takes to say out loud (not
+    # really "latency" -- inherent to the reply's length, same as it would
+    # be for any spoken response, robot or human).
+    print(f"[speech-timing] synth={t_synth:.1f}s playback={t_playback:.1f}s")
