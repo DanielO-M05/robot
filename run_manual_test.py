@@ -46,7 +46,7 @@ from robot_core.events import Event
 from robot_core.hearing_phone import PhoneHearingSystem, mute_microphone, unmute_microphone
 from robot_core.llm_brain import LLMBrain
 from robot_core.motors_narrated import NarratedMotorController
-from robot_core.speech import speak
+from robot_core.speech import speak, warm_up_voice
 from robot_core.vision_phone import PhoneVisionSystem
 
 LOOK_INTERVAL_SECONDS = 15  # fallback only: how long to go without hearing
@@ -106,6 +106,9 @@ def main() -> None:
     motors = NarratedMotorController()
     brain = LLMBrain()
     event_queue: "queue.Queue[Event]" = queue.Queue()
+
+    print("Warming up voice model...")
+    warm_up_voice("danny")  # pays the model-load cost now, not on the first real reply
 
     listener_thread = threading.Thread(
         target=_hearing_worker, args=(hearing, event_queue), daemon=True
