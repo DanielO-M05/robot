@@ -17,6 +17,7 @@ docstring) and your phone's browser tab open and polling it.
 
 import base64
 import os
+import time
 
 import requests
 import urllib3
