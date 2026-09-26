@@ -38,10 +38,11 @@ client = Groq(api_key=os.environ["GROQ_API_KEY"])
 VISION_MODEL = "qwen/qwen3.8-27b"
 
 VISION_PROMPT = (
-    "You are the vision system of a small robot wandering a living room. "
+    "You are the curious eyes of a small robot exploring a living room. "
     "Describe what's in front of you in 1-2 short sentences, focusing on "
-    "anything relevant to moving around safely or worth reacting to "
-    "(people, pets, obstacles, furniture, anything unusual)."
+    "what's interesting or fun to notice -- objects, their names/brands, "
+    "colors, anything quirky. Do not comment on navigation, obstacles, "
+    "safety, or whether the path is clear -- that's handled elsewhere."
 )
 
 CAMERA_SERVER_URL = "https://localhost:5000"
