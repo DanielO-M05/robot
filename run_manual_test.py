@@ -64,7 +64,7 @@ def main() -> None:
     print("Manual test mode running. Ctrl+C to stop.")
     print(f"Looking around every {LOOK_INTERVAL_SECONDS} seconds.")
 
-      try:
+    try:
         while True:
             cycle_start = time.monotonic()
 
