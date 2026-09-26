@@ -64,15 +64,19 @@ def main() -> None:
     print("Manual test mode running. Ctrl+C to stop.")
     print(f"Looking around every {LOOK_INTERVAL_SECONDS} seconds.")
 
-    try:
+      try:
         while True:
             cycle_start = time.monotonic()
 
+            t0 = time.monotonic()
             description = vision.look()
+            t_vision = time.monotonic() - t0
             print(f"[vision] {description}")
 
+            t0 = time.monotonic()
             event = Event(kind="periodic_look", detail=description)
             actions = brain.decide(event)
+            t_brain = time.monotonic() - t0
 
             if not actions:
                 print("[brain] decided: nothing to do")
@@ -81,19 +85,17 @@ def main() -> None:
                 for action in actions:
                     print(f"  -> {action.kind}({action.payload!r})")
 
+            t0 = time.monotonic()
             for action in actions:
                 _execute(action, motors)
+            t_execute = time.monotonic() - t0
 
-            # We assume one full cycle (capture -> vision -> brain -> any
-            # narrated actions, including speak()) finishes comfortably
-            # inside LOOK_INTERVAL_SECONDS. Because this loop is single-
-            # threaded and fully synchronous, two speak() calls can never
-            # literally overlap -- the real risk is DRIFT: sleeping a flat
-            # LOOK_INTERVAL_SECONDS every time would let cycles creep later
-            # and later if any step runs long. Sleeping for the remaining
-            # time instead prevents that drift, and we warn loudly if a
-            # cycle ever exceeds the interval outright.
             elapsed = time.monotonic() - cycle_start
+            print(
+                f"[timing] vision={t_vision:.1f}s brain={t_brain:.1f}s "
+                f"execute={t_execute:.1f}s total={elapsed:.1f}s"
+            )
+
             remaining = LOOK_INTERVAL_SECONDS - elapsed
             if remaining <= 0:
                 print(
