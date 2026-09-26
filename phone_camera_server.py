@@ -82,6 +82,12 @@ _frame_lock = threading.Lock()
 _audio_queue = collections.deque(maxlen=AUDIO_QUEUE_MAXLEN)
 _audio_available = threading.Condition()
 
+# Set by the Pi right before it speaks (via /set_muted) so the phone's own
+# audio uploads are dropped while the robot's voice is playing -- otherwise
+# the mic picks up the robot's own speech through the room and feeds it
+# right back in as if a person said it.
+_mic_muted = threading.Event()
+
 PAGE = f"""
 <!doctype html>
 <html>
@@ -269,10 +275,23 @@ def request_capture():
 
 @app.route("/upload_audio", methods=["POST"])
 def upload_audio():
+    if _mic_muted.is_set():
+        return "", 204  # robot is speaking right now -- discard, don't even queue
     mime_type = request.headers.get("Content-Type", "audio/webm")
     with _audio_available:
         _audio_queue.append((request.data, mime_type))
         _audio_available.notify()
+    return "", 204
+
+
+@app.route("/set_muted", methods=["POST"])
+def set_muted():
+    """Called by hearing_phone.py right before/after the robot speaks."""
+    data = request.get_json(silent=True) or {}
+    if data.get("muted"):
+        _mic_muted.set()
+    else:
+        _mic_muted.clear()
     return "", 204
 
 
