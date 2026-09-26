@@ -30,6 +30,21 @@ def _get_voice(voice: str) -> PiperVoice:
     return _loaded_voices[voice]
 
 
+def warm_up_voice(voice: str, length_scale: float = DEFAULT_LENGTH_SCALE) -> None:
+    """
+    Forces a voice's model to load NOW, plus one throwaway synthesis call,
+    rather than paying that cost live during the first real speak() of a
+    session. Call this once at program startup for every voice you expect
+    to use. The throwaway output is discarded (written to OUTPUT_FILE and
+    immediately overwritten by the next real speak() call, so no cleanup
+    needed).
+    """
+    piper_voice = _get_voice(voice)
+    syn_config = SynthesisConfig(length_scale=length_scale)
+    with wave.open(OUTPUT_FILE, "wb") as wav_file:
+        piper_voice.synthesize_wav("Warming up.", wav_file, syn_config=syn_config)
+
+
 def _prepend_silence(wav_path: str, silence_ms: int):
     with wave.open(wav_path, "rb") as w:
         params = w.getparams()
