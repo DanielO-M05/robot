@@ -23,7 +23,7 @@ def _prepend_silence(wav_path: str, silence_ms: int):
         w.setparams(params)
         w.writeframes(silence_bytes + frames)
 
-def speak(text: str, voice: str = "alan", length_scale: float = 0.83):
+def speak(text: str, voice: str = "alan", length_scale: float = 0.70):
     """Convert text to speech and play it through the connected speaker."""
     model_path = VOICES[voice]
     subprocess.run(
