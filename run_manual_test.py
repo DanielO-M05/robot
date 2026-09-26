@@ -63,6 +63,7 @@ def main() -> None:
 
             event = Event(kind="periodic_look", detail=description)
             actions = brain.decide(event)
+            print(f"[brain] {actions}")
 
             for action in actions:
                 _execute(action, motors)
