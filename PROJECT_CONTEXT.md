@@ -3,12 +3,22 @@
 This file exists so a new chat session (a different LLM instance, or the
 same one with no memory of prior conversation) can get up to speed quickly.
 If you're an AI reading this to help with the project: read this whole file
-before making suggestions, since several early instincts (e.g. "just use
-model X" or "just parallel the motors") were already explored and rejected
-for specific reasons documented below. This version supersedes the
-original -- hardware decisions have firmed up, real code interfaces are
-now confirmed (not guessed), and a software-only "manual test mode" is
-working end to end.
+before making suggestions, since several early instincts were already
+explored and rejected for specific reasons documented below.
+
+This version supersedes the previous one. The previous version covered
+hardware decisions firming up and a software-only "manual test mode"
+working end to end for a single camera-driven loop. Since then, an entire
+session was spent making that loop actually feel like a conversation: a
+mic-primary interaction model was added, two separate multi-second latency
+bugs were found and fixed (not where anyone expected), a real echo bug was
+fixed twice (first pass was incomplete), and short-term conversational
+memory was added after discovering the brain was completely stateless.
+**No new hardware was purchased or wired this session** -- everything
+below is still software, running against the phone-as-camera-and-mic
+stand-in. The person's plan going forward is to buy a combined cheap
+mic+speaker unit specifically because this session proved the mic-primary
+concept works and is worth building for real.
 
 ## Original project mission (verbatim intent from the human)
 
@@ -32,354 +42,452 @@ robot that:
 **Critical design principle, stated explicitly by the person:** the LLM
 must NOT be responsible for low-level safety (obstacle avoidance, movement
 duration limits, emergency stop). That's deterministic code's job. The LLM
-handles interesting/high-level behavior only. See the six-layer
-architecture below -- this principle is now formalized as "Reflexes gates
-Nerves directly; Mind is informed, never asked."
+handles interesting/high-level behavior only. Formalized as "Reflexes
+gates Nerves directly; Mind is informed, never asked." **This session
+extended that same philosophy into a second axis: the LLM also shouldn't
+be reasoning about navigation/safety AT ALL, even descriptively.** Early
+in the session, both the vision model and the brain were narrating things
+like "blocking my path" and deciding to `stop()` "to avoid" people --
+conflating a job that isn't Mind's with the job that IS Mind's (reacting
+with personality/curiosity). Prompts were rewritten project-wide to
+remove this conflation -- see "Key decisions" below.
 
-## Architecture (see ARCHITECTURE.md for full detail)
-
-The person refined the original architecture into six named conceptual
-layers, documented fully in `ARCHITECTURE.md`:
+## Architecture (see ARCHITECTURE.md for full detail -- NOTE: ARCHITECTURE.md
+## has NOT been updated this session; it still describes the pre-mic,
+## vision-only version of Mind. Treat this file as more current until
+## ARCHITECTURE.md is revised.)
 
     Perception -> Reflexes -> Mind -> Nerves -> Expression
                       ^          |
                       |          v
                     (direct)   Memory
 
-- **Perception**: mic, camera, infrared/distance sensors (raw input)
-- **Reflexes**: deterministic safety layer; can force a stop directly to
-  Nerves, bypassing Mind entirely. Not yet built in hardware -- see
-  "Hardware" section below.
-- **Mind**: the LLM-based reasoning/tool-calling layer (`LLMBrain`)
-- **Memory**: persistent context for Mind, reserved in the architecture,
-  not implemented yet
-- **Nerves**: translates Mind's tool calls into motor driver signals
-- **Expression**: speaker (TTS) and motors
-
-**Core principle, worth restating because it's load-bearing:** Reflexes
-gates Nerves directly, regardless of whether Mind has responded, is slow,
-or is unreachable (Mind likely runs as a remote API call, so this removes
-network reliability from the safety path entirely). Mind is *told* about a
-safety stop after the fact, for reactive/behavioral purposes only -- its
-output has zero bearing on whether the stop occurs.
-
-**Important: these are conceptual layer names, not file/folder renames.**
-The actual code still uses the original module names (`motors.py`,
-`vision.py`, `brain.py`, `llm_brain.py`, `events.py`, `speech.py`). Don't
-suggest renaming files to match the layer names -- the mapping is
-documented in ARCHITECTURE.md, not enforced by directory structure.
+- **Perception**: now TWO working software stand-ins (mic + camera, both
+  via phone), plus not-yet-built IR sensors.
+- **Reflexes**: still entirely unbuilt, in hardware or software. Still the
+  single biggest gap between "this works in a manual test" and "this is
+  actually safe to run untethered." Nothing this session changed that.
+- **Mind**: `LLMBrain`. Gained its first real, if minimal, connection to
+  Memory this session (see below) -- previously completely stateless.
+- **Memory**: previously "reserved in the architecture, not implemented."
+  This session added a FIRST PASS: a bounded rolling window of the last
+  few conversational turns, held in `LLMBrain`'s own memory (a Python
+  `deque`), not persisted to disk. Resets every time `run_manual_test.py`
+  restarts. Real persistent Memory (remembering across days/sessions) is
+  still not built.
+- **Nerves / Expression**: unchanged -- still narrated stand-ins, no real
+  motor hardware.
 
 ## Hardware chosen/decided so far
 
-- **Raspberry Pi 4 Model B** -- in hand, set up headless.
-- **Chassis**: Hiwonder 4WD Chassis Car Kit, **assembled**. 4 TT-style DC
-  gear motors + wheels + encoder ("code") disks on the motor shafts
-  opposite the wheels.
-- **Motor driver**: WWZMDiB 4-pack of TB6612FNG dual-motor breakout
-  boards (only 2 of the 4 boards are actually needed for 4 motors, other
-  2 are spares). Chosen over paralleling motors on fewer channels (current
-  headroom, per-wheel tuning) and over a single L298N (efficiency, less
-  heat). **Purchase decided, not yet confirmed received/soldered as of
-  this writing.**
-- **Soldering plan**: the person doesn't own a soldering iron or
-  multimeter. Decided to use the **University of Pittsburgh Swanson
-  School of Engineering Makerspace** (Benedum Hall basement, room B06A,
-  the "ISS") instead of buying tools -- it stocks solder, flux, helping
-  hands, wire, and wire strippers, free for any Pitt student, after a
-  short training (watch a video, take a quiz, brief in-person mentor
-  check during open hours). Needed for both the driver boards' header
-  pins and the motors' bare copper terminal tabs.
-- **Battery pack**: a 4-slot holder, confirmed via the printed **UM-3**
-  designation to be **AA size** (UM-3 = AA; UM-4 = AAA; UM-1 = D; UM-2 =
-  C -- useful decoder for future battery-holder questions). Decided on
-  **4x AA NiMH rechargeable** cells + charger. Note this gives **4.8V
-  nominal**, not the 6V originally assumed in the first version of this
-  doc (that number assumed a 5-cell pack) -- still comfortably within the
-  TT motors' 3-6V rated range, just a bit less headroom/speed than 6V
-  would give. **Purchase decided, not yet confirmed.**
-- **Camera + mic**: decided on a single **Logitech C270** webcam
-  (~$25-30) -- UVC-compliant (works on Raspberry Pi OS with zero driver
-  install) and has a built-in noise-reducing mic, so one purchase covers
-  both the camera and mic hardware needs. **Purchase decided, not yet
-  confirmed.**
-- **IR obstacle sensors**: decided on cheap **3-wire digital IR obstacle
-  avoidance modules** (VCC/GND/OUT, active-LOW on obstacle detection,
-  adjustable 2-30cm range via onboard potentiometer) -- OSOYOO/HiLetgo/
-  Frienda-style clones are all functionally identical. Plan is to buy at
-  least a 3-pack (left/center/right) for directional awareness, not just
-  one. **Purchase decided, not yet confirmed.** These will eventually
-  become the real Reflexes layer's input -- not built yet.
-- **Other small parts needed, not yet purchased**: male-to-female jumper
-  wires (for Pi GPIO -> driver logic pins), an inline SPST power switch
-  for the motor battery (so testing doesn't require unplugging a wire
-  every time), mounting tape/zip ties for the driver boards.
-- **Speaker**: Anker SoundCore 2 Bluetooth speaker, already integrated
-  (paired, trusted, persists across reboot via systemd user service).
-  Currently gets carried around by the person during manual testing (see
-  "Manual test mode" below) rather than staying fixed to the chassis.
-- **Power supply gotcha already hit and solved** (unchanged from original
-  doc): Pi showed active undervoltage with a borrowed charger correctly
-  rated 5V/3A -- root cause was cable length/quality. Swapping to a short
-  cable fixed it. Re-check `vcgencmd get_throttled` once real camera/
-  driver load gets added.
+**No change from the previous version -- chassis assembled, nothing else
+(driver boards, camera, IR sensors, battery) confirmed purchased/wired.**
+Everything this entire session was software, run against the phone
+standing in for both camera AND (new this session) microphone.
 
-**Current real-world hardware status, stated plainly:** chassis is
-assembled; nothing else (driver boards, camera, IR sensors, battery) is
-confirmed purchased or wired yet. All progress since is *software*,
-proven out via the manual test mode described below, which stands in for
-hardware that doesn't exist yet.
+**NEW plan, motivated directly by this session's results:** the person
+intends to buy a cheap combined mic+speaker unit (a single physical
+device with both, unlike the current split setup of phone mic +
+separate Bluetooth speaker). This isn't just a convenience upgrade --
+it's a *precondition* for ever doing real acoustic echo cancellation
+(AEC) or full-duplex conversation (letting a person interrupt the robot
+mid-sentence). AEC fundamentally needs the mic and speaker to know about
+each other's signal, which isn't possible when they're two independent
+devices with no shared audio pipeline -- see "Key decisions" for why the
+current setup uses a cruder mute-based workaround instead.
 
 ## Software built so far
 
-Repo lives at `~/robot` on the Pi (`DanielO-M05/robot` on GitHub),
-git-initialized, `venv`-based Python 3.13.5 on Raspberry Pi OS Lite 64-bit.
+Repo lives at `~/robot` on the Pi (`DanielO-M05/robot` on GitHub).
 
     robot_core/
-      motors.py           MotorController interface + SimMotorController.
-                           REAL interface (confirmed from source, don't
-                           re-guess this): drive(left: float, right: float)
-                           and stop(). NOT move_forward/turn helper
-                           methods -- it's raw differential drive.
-      vision.py            VisionSystem interface + SimVisionSystem.
-                           REAL interface: look() -> str. Matches what was
-                           assumed originally, no surprises here.
-      vision_phone.py       NEW. PhoneVisionSystem(VisionSystem) -- reads
-                           the most recent frame from a local file
-                           (default /tmp/latest_frame.jpg, written by
-                           phone_camera_server.py) and describes it via
-                           Groq's free-tier vision model qwen/qwen3.8-27b.
-      motors_narrated.py    NEW. NarratedMotorController(MotorController)
-                           -- narrates drive(left,right)/stop() calls
-                           through TTS instead of driving hardware.
-                           Non-blocking, same contract as
-                           SimMotorController -- the CALLER owns timing
-                           (see run_manual_test.py), not the controller.
-      speech.py             Piper TTS -> Bluetooth via PulseAudio. Two
-                           voices: "robot" = Danny (en_US, low quality,
-                           robot's voice), "narrator" = Alan (en_GB,
-                           medium quality). Silence padding (400ms
-                           in current code) prepended to work around
-                           Bluetooth A2DP sink-wake-up audio clipping.
-      brain.py              Action dataclass + RuleBasedBrain. REAL Action
-                           shape (confirmed from source): Action(kind: str,
-                           payload: Optional[str] = None) -- payload is a
-                           single optional string, NOT a dict. This matters:
-                           move/turn durations are never something the LLM
-                           decides; they're fixed constants living in
-                           whatever calls the brain's decided actions.
-      llm_brain.py          LLMBrain -- Groq free tier, model
-                           "openai/gpt-oss-20b". Tool schema: speak(text),
-                           stop(), move_forward() [no duration param],
-                           turn(direction) [no duration param], look().
-                           HARDENED this session: the Groq API call and
-                           each tool call's argument-JSON parsing are now
-                           individually wrapped in try/except, failing
-                           safe to "do nothing this cycle" rather than
-                           crashing the whole process. This was a REAL bug
-                           hit live: the model occasionally emits malformed
-                           tool-call JSON (observed: a truncated
-                           speak(text="") call), which used to take the
-                           entire continuous loop down.
-      events.py             Event dataclass. GAINED a field this session:
-                           Event(kind: str, detail: Optional[str] = None).
-                           `detail` exists specifically so vision
-                           descriptions (and future sensor context in
-                           general) have somewhere to travel to the brain.
-                           Every pre-existing Event(kind=...) call site is
-                           unaffected (backward compatible).
+      motors.py, vision.py, brain.py, events.py   Unchanged from before.
+                                                     Action/Event/MotorController
+                                                     real interfaces still as
+                                                     documented previously --
+                                                     see "What NOT to
+                                                     re-suggest" below.
 
-    sim/
-      clock.py              Accelerated virtual clock, unchanged.
-      world.py              Simulation generator/display loop, unchanged.
+      speech.py                REWRITTEN TWICE this session. Voices renamed
+                                "robot"->"danny", "narrator"->"alan" (a
+                                person-driven edit; some call sites in
+                                say_once.py were deliberately left
+                                referencing the OLD "narrator" key mapped to
+                                Danny's voice -- a known, intentional
+                                mismatch the person chose not to fix, left
+                                as-is per their explicit instruction).
+                                FINAL interface: speak(text, voice="danny",
+                                length_scale=0.75) calls a per-voice cached
+                                PiperVoice instance's synthesize_wav(), NOT
+                                subprocess.run(["piper", ...]) anymore -- see
+                                "Key decisions" for why the naive subprocess
+                                approach was actually the dominant latency
+                                bug this whole session (6-7s per reply,
+                                turned out to be model-reload time, NOT
+                                voice quality or inference speed). Installed
+                                piper-tts is v1.8.0 (the piper1-gpl / Home
+                                Assistant rewrite) -- a DIFFERENT project
+                                from the classic rhasspy/piper CLI, with a
+                                real importable Python API
+                                (`from piper import PiperVoice,
+                                SynthesisConfig`), no `--json-input` flag
+                                (that's the OTHER piper and doesn't exist
+                                here). print()s [speech-timing] synth=...
+                                playback=... every call.
 
-    tests/                 pytest suite, unchanged.
+      vision_phone.py           REWRITTEN. PhoneVisionSystem.look() no
+                                longer reads a static file written by a
+                                constantly-uploading phone -- it now POSTs
+                                to phone_camera_server.py's
+                                /request_capture and blocks for a genuinely
+                                fresh, on-demand frame. VISION_PROMPT
+                                rewritten to remove all navigation/safety
+                                language (see "Key decisions"). Prints
+                                [vision-timing] capture=... describe=...
 
-    run_sim.py             Original simulation entry point, unchanged.
+      hearing_phone.py           NEW. PhoneHearingSystem -- mic input,
+                                mirrors vision_phone.py's shape.
+                                listen() long-polls phone_camera_server.py's
+                                /next_audio_chunk (returns None on timeout,
+                                meaning "nothing heard," not an error),
+                                transcribes with Groq's free-tier
+                                whisper-large-v3-turbo, filters known
+                                hallucination filler phrases
+                                (_HALLUCINATION_DENYLIST -- a fixed set,
+                                will likely need more entries added as
+                                testing continues). Also exposes
+                                mute_microphone()/unmute_microphone() (POST
+                                /set_muted) and await_speech_start() (GET
+                                /await_speech_start, a SEPARATE lightweight
+                                signal from the full transcript pipeline --
+                                see "Key decisions" for why two separate
+                                signals exist). Prints [hearing-timing]
+                                whisper=...
 
-    run_manual_test.py     NEW. "Manual test mode" entry point -- a
-                           software-only stand-in for the real continuous
-                           event loop (MVP 5), used to exercise the full
-                           Perception -> Mind -> Nerves -> Expression
-                           pipeline before any real hardware exists. Loop:
-                           every LOOK_INTERVAL_SECONDS (15s default), read
-                           the phone's latest camera frame, describe it,
-                           feed it to LLMBrain via Event.detail, execute
-                           whatever actions come back by narrating them
-                           (NarratedMotorController + speak()). The human
-                           carries the phone + Bluetooth speaker and
-                           physically performs whatever gets narrated --
-                           acting as BOTH the not-yet-built Reflexes
-                           safety layer (use your own judgment, don't
-                           actually walk into a wall) AND the not-yet-built
-                           motor hardware. Fixed move/turn speed and
-                           duration constants (DRIVE_SPEED,
-                           MOVE_FORWARD_SECONDS, TURN_SECONDS) live here,
-                           not in the brain -- consistent with the real
-                           Action/tool schema never giving the LLM a
-                           duration to decide. Logs the vision description
-                           and the brain's raw decided actions as plain
-                           text to the terminal every cycle for debugging
-                           -- confirmed working end to end this session.
+      llm_brain.py               SYSTEM_PROMPT and all TOOLS descriptions
+                                rewritten to remove safety/navigation
+                                framing and push toward curiosity + direct
+                                conversational address (second person,
+                                ask questions, short reactions) instead of
+                                third-person "I wonder" narration. Added
+                                reasoning_effort="low" and raised
+                                max_tokens 300->500 -- openai/gpt-oss-20b is
+                                a reasoning model whose hidden reasoning
+                                tokens count against the same budget as the
+                                visible reply; this was the actual cause of
+                                an intermittent "malformed tool-call JSON"
+                                crash (generation was being cut off
+                                mid-string, not genuinely malformed).
+                                BIGGEST addition: LLMBrain now holds
+                                self.history (a bounded deque, default 6
+                                turns / 12 messages), included in every
+                                decide() call. Before this, EVERY call was
+                                completely stateless -- the real cause of
+                                the robot losing conversational threads,
+                                contradicting itself, and not tracking who
+                                said what. History entries are stored in
+                                PLAIN conversational format (just the raw
+                                utterance / just the spoken reply text) --
+                                an earlier version wrapped history entries
+                                in an instructional template ('You said:
+                                "..."') which caused the model to
+                                verbatim-repeat its own previous reply
+                                instead of treating it as normal
+                                conversational memory. Non-speech actions
+                                (turn/stop/move) are NOT written to
+                                history -- only speak() text is, plus the
+                                raw heard utterance.
 
-    phone_camera_server.py NEW. Self-hosted alternative to a third-party
-                           phone IP-camera app. Runs a tiny local Flask
-                           server over self-signed HTTPS; the phone's own
-                           Safari browser opens a page that accesses its
-                           camera via the standard getUserMedia web API
-                           (no app install) and POSTs a frame every 3s to
-                           this server, which writes it to
-                           /tmp/latest_frame.jpg. See "Key decisions" below
-                           for why this was chosen over an app.
+      phone_camera_server.py    REWRITTEN. Now serves BOTH camera and mic
+                                from one page/one phone tab:
+                                - Video: unchanged on-demand model
+                                  (/should-capture polling + blocking
+                                  /request_capture).
+                                - Audio: NOT continuous fixed-interval
+                                  chunking (that was the original plan;
+                                  rejected -- see "Key decisions" for the
+                                  Groq Whisper free-tier budget math that
+                                  killed it). Instead, the phone runs a
+                                  simple amplitude-threshold voice-activity
+                                  detector locally (Web Audio API
+                                  AnalyserNode, no ML, no network call) and
+                                  only records+uploads when it detects
+                                  actual speech. Server exposes
+                                  /upload_audio (push) and
+                                  /next_audio_chunk (Pi-side long-poll,
+                                  pull).
+                                - /set_muted: lets the Pi tell the phone
+                                  server to silently DROP incoming audio
+                                  uploads -- used while the robot is
+                                  speaking so it can't hear/transcribe
+                                  itself (see "Key decisions" -- this
+                                  needed TWO iterations to get right).
+                                - /speech_started + /await_speech_start: a
+                                  SEPARATE, instant signal fired the moment
+                                  VAD starts recording, before any
+                                  transcription happens -- lets the Pi
+                                  reset its camera-fallback timer
+                                  immediately rather than losing a race
+                                  against a slower full-transcript pipeline.
+                                Tunables in the phone-side JS:
+                                SPEECH_THRESHOLD=12 (still a rough guess,
+                                may need tuning by ear per-room),
+                                SILENCE_HANG_MS=1500 (raised from an
+                                original 800 after it was cutting people
+                                off mid-sentence during natural pauses),
+                                MAX_RECORD_MS=12000.
 
-    say_once.py             NEW. Standalone CLI/importable utility:
-                           say_once.say(text) speaks text through Danny's
-                           voice using a fresh temp WAV file per call,
-                           deleted immediately after playback (unlike
-                           speech.py's speak(), which reuses a fixed
-                           /tmp/speech.wav left on disk between calls).
-                           Reuses the Danny voice path from speech.py's
-                           VOICES dict rather than hardcoding it a second
-                           time.
+      run_manual_test.py         REWRITTEN from a fixed-15s polling loop
+                                into an event-queue-driven, mic-PRIMARY
+                                loop with camera as FALLBACK only (after
+                                LOOK_INTERVAL_SECONDS=15 of silence, not on
+                                a fixed schedule regardless of speech).
+                                TWO background daemon threads feed one
+                                queue.Queue: _hearing_worker (blocks on the
+                                full transcript pipeline, puts
+                                Event(kind="heard_speech")) and
+                                _speech_signal_worker (blocks on the fast
+                                start-of-speech signal only, puts
+                                Event(kind="speech_started") -- a pure
+                                timer-reset no-op the main loop handles
+                                with a `continue`, never reaching
+                                brain.decide()). Only the MAIN loop ever
+                                calls brain.decide() or executes actions
+                                (including speak()) -- this is what
+                                guarantees two speak() calls can never
+                                overlap, regardless of how fast or often
+                                speech arrives; extra heard_speech events
+                                just queue up and get handled in order.
+                                Wraps every action-execution block in
+                                mute_microphone() / unmute_microphone()
+                                with POST_SPEECH_GRACE_SECONDS=2.0 (raised
+                                from an initial 1.0 -- Bluetooth's A2DP
+                                buffer has real playback lag after
+                                paplay's subprocess call returns; 1.0s
+                                wasn't enough and let the TAIL of the
+                                robot's own sentences get transcribed back
+                                in as if a person said them). Per-phase
+                                timing printed every cycle: [timing]
+                                source=... vision=... brain=... execute=...
 
-    ARCHITECTURE.md         NEW. The six-layer conceptual architecture
-                           (Perception/Reflexes/Mind/Memory/Nerves/
-                           Expression), the core safety-gating principle,
-                           per-layer detail, and open items. Separate from
-                           this file on purpose: this file is history/
-                           decisions, ARCHITECTURE.md is the current
-                           design reference.
+    ARCHITECTURE.md            NOT updated this session -- still describes
+                                the pre-mic, single-vision-loop version.
+                                Needs a revision pass; flagged, not done.
 
-    README.md              Architecture overview + prioritized roadmap.
-    TESTING.md              Testing philosophy, unchanged.
-    PROJECT_CONTEXT.md      This file.
+    README.md, TESTING.md      Unchanged, not touched this session.
 
 ## Key decisions and why (so they aren't re-litigated)
 
-- **Why Groq, not Anthropic/OpenAI paid API:** unchanged from original --
-  billing-risk discomfort, Groq's free tier chosen instead (30 req/min,
-  1,000 req/day per model). Confirmed this session: the SAME free tier
-  also covers vision (`qwen/qwen3.8-27b`), so the phone-vision feature
-  needed **zero new providers or billing relationships**.
-- **Why not a second AI provider for vision:** Groq's free tier already
-  includes a vision-capable model with the same API key, same
-  chat.completions shape, and tool-use support -- no reason to add
-  anything else.
-- **Real Groq free-tier rate limits for the two models actually in use**
-  (confirmed via Groq docs/community sources, subject to Groq changing
-  this over time -- verify on console.groq.com/settings/limits if
-  something seems off): `openai/gpt-oss-20b` (brain) and
-  `qwen/qwen3.8-27b` (vision) each get **30 RPM / 1,000 RPD / 8,000 TPM /
-  200,000 TPD**, as SEPARATE per-model budgets. The binding constraint in
-  practice is the vision model's daily token cap: each image costs a flat
-  2,048 tokens regardless of resolution, so 200,000 TPD works out to only
-  ~90-95 vision calls/day -- at the current 15s look interval, that's
-  roughly 20-25 minutes of continuous manual-test running before a 429,
-  NOT a full day. A mid-test 429 is very likely this, not a bug.
-- **Why the manual test mode exists at all:** to exercise the full
-  software pipeline (real vision API call, real tool-calling brain call,
-  real TTS output) before any driver/motor/sensor hardware is soldered.
-  The human stands in for two different missing pieces at once: the
-  not-yet-built Reflexes safety layer (judgment: don't actually perform
-  an unsafe narrated action) and the not-yet-built Expression motors
-  (physically walk/turn as narrated).
-- **Why a self-hosted browser page instead of a phone IP-camera app:**
-  IP Webcam (the original plan) is Android-only. Its natural iOS
-  substitute, IP Camera Lite, was rejected after checking its App Store
-  privacy label, which discloses data that "may be used to track you
-  across apps and websites owned by other companies" -- unacceptable for
-  something with a live camera feed. Instead, `phone_camera_server.py`
-  runs entirely on the Pi; the phone's own browser talks to it directly
-  over the local network via the standard `getUserMedia` API, no
-  third-party app or code involved. The one real cost: Safari requires
-  HTTPS for camera access even on a local network, so a self-signed
-  certificate is required, which triggers an expected browser warning --
-  safe to click through ONLY because the person generated the cert
-  themselves and knows exactly where the connection goes.
-- **Why MotorController's real interface changes what "duration" means:**
-  the actual interface is `drive(left, right)` + `stop()` -- raw
-  differential drive, non-blocking (mirrors SimMotorController, which
-  just records state instantly). There is no `move_forward(duration)` or
-  `turn(direction, duration)` on the interface. Combined with Action's
-  real shape (single optional string payload, not a dict) and the LLM's
-  tool schema (move_forward/turn take no duration argument), this means
-  **duration is architecturally never something the LLM decides** -- it's
-  a fixed constant living in whatever code translates a decided Action
-  into drive()/stop() calls (currently `run_manual_test.py`'s
-  DRIVE_SPEED/MOVE_FORWARD_SECONDS/TURN_SECONDS). This is a good, already-
-  correct instance of the "Mind decides intent, not mechanics" principle
-  -- don't undo it by adding a duration parameter to the tool schema
-  without deliberately deciding that's a scope change.
-- **Why llm_brain.py needed hardening:** hit live during testing -- Groq's
-  smaller free-tier model occasionally generates malformed tool-call JSON
-  (observed: a truncated `speak(text="")` call), which crashed the whole
-  continuous loop with an unhandled exception. Fixed by wrapping the API
-  call and each tool call's argument parsing individually in try/except,
-  failing safe to "no action this cycle" rather than taking the process
-  down. Necessary groundwork for MVP 5's real continuous loop, which needs
-  to survive occasional bad model output indefinitely, not just for a
-  short manual test.
-- **Why two TB6612FNG boards instead of one, or instead of paralleling
-  motors:** unchanged from original -- current headroom safety margin,
-  per-wheel tuning flexibility. (Confirmed this session: a 4-pack was
-  bought since it worked out cheaper than buying 2 individually; only 2
-  of the 4 are actually needed, other 2 are spares.)
-- **Why the simulation's brain-safety design changed mid-build:**
-  unchanged from original doc -- see prior version if needed, still
-  accurate. The `safety_stop` boolean in `sim/world.py`, computed
-  independent of the brain, is the sim-era ancestor of what ARCHITECTURE.md
-  now formalizes as "Reflexes gates Nerves directly."
-- **Known unresolved nuance (see README's "Known design gaps"):** the
-  real brain (`LLMBrain`, not just the old `RuleBasedBrain`) still has no
-  concept of persistent robot state across cycles -- `run_manual_test.py`
-  proves the pipeline works, but it's a human-in-the-loop stand-in, not
-  the real continuous event loop. Still deliberately deferred to MVP 5, per
-  the original reasoning: adding state-tracking to a loop with no real
-  hardware behind it yet has nothing real to validate against.
+- **Why on-demand capture (both camera and mic) instead of continuous
+  fixed-interval polling:** the original camera design uploaded a frame
+  every 3s regardless of whether anyone ever read it -- 4 out of 5 frames
+  were pure waste. Applying that same fixed-interval pattern to audio
+  would have been far worse: naive 4s-interval audio chunking would burn
+  Groq's free Whisper tier (2,000 requests/day) in about 2.2 hours of
+  continuous testing. Both problems got the same fix philosophy: only do
+  the expensive thing (upload a frame / record+transcribe audio) when
+  something actually asked for it (video) or actually happened (audio,
+  via local VAD) -- never on a timer regardless of relevance.
+- **Why voice-activity detection lives in the BROWSER, not the Pi:**
+  keeping the "is someone talking" check local to the phone means
+  silence never leaves the phone at all -- no network call, no Groq call,
+  zero cost for a quiet room. A simple RMS-amplitude threshold via the
+  Web Audio API's AnalyserNode was enough; no ML VAD model needed.
+- **Why the actual TTS bottleneck was NEVER voice quality, and why
+  swapping "alan" (medium) for "danny" (low) didn't fix anything:** the
+  real bug was `subprocess.run(["piper", ...])` spawning a brand-new
+  process and reloading the ONNX model from disk on EVERY single call,
+  regardless of which voice. Both voices were paying the same ~6-7s
+  reload tax every time; the voice-quality experiment was actually a
+  null result dressed up as informative. Piper's own docs explicitly warn
+  about this ("run as a persistent service, not per-sentence, for
+  low-latency applications").
+- **Why the fix wasn't Piper's `--json-input` stdin-persistence trick
+  either:** that flag belongs to the OLDER `rhasspy/piper` CLI. The
+  actually-installed package is `piper-tts` v1.8.0 (the `piper1-gpl` /
+  Home Assistant rewrite), which has a completely different flag set and
+  NO `--json-input` at all -- attempting it produced a real crash
+  (fell back to trying to play via a missing `ffplay` and silently wrote
+  to the wrong filename). The correct fix for THIS installed version is
+  its native Python API: `PiperVoice.load()` once per voice, cached, then
+  repeated `synthesize_wav()` calls with a `SynthesisConfig(length_scale=
+  ...)` per call. This dropped synth time from 6-7s to ~0.3-1.5s.
+- **Why length_scale is a per-call SynthesisConfig argument, not a
+  per-voice-process startup flag:** an earlier, abandoned intermediate
+  design (persistent subprocess + `--json-input`) would have baked
+  length_scale in at process-start time, only changeable by restarting
+  that voice's process. The final native-API design avoids that
+  limitation entirely -- moot now, but don't reintroduce it if revisiting
+  TTS architecture later.
+- **Why vision AND brain prompts were rewritten to remove all
+  safety/navigation language:** early testing showed the vision model
+  describing scenes as "blocking my path" / "safe to proceed," and the
+  brain deciding to `stop()` "to avoid" a person -- both reasoning about a
+  job that belongs to the not-yet-built Reflexes layer, not Mind. Fixed
+  by explicitly telling both prompts that collision/safety is handled
+  elsewhere regardless of what Mind decides, and reframing turn/stop/
+  move_forward around CURIOSITY (turn toward something interesting, stop
+  to linger/react) instead of avoidance.
+- **Why LLMBrain needed a rolling conversation history at all:** every
+  call was completely stateless -- the model had zero memory of anything
+  said even one turn earlier, including its own previous replies. This
+  produced two distinct failure modes: (1) the model losing track of a
+  topic it itself introduced seconds earlier and giving unrelated
+  non-sequiturs when asked to continue it, and (2) after a naive history
+  format was added, literal verbatim self-repetition. Root cause of (2):
+  history entries were wrapped in an instructional template ('You said:
+  "..."'), and the model pattern-matched on reproducing quoted text
+  rather than treating it as its own past utterance. Fixed by storing
+  history in plain conversational form (just the raw text, no wrapper) --
+  only the LIVE, current-turn message keeps the instructional framing.
+- **Why the mic gets explicitly muted (not just left running) while the
+  robot speaks, and why the grace period is 2.0s not 1.0s:** phone mic
+  and Bluetooth speaker are two separate physical devices, so browser-
+  level echo cancellation (built for a device hearing its OWN speaker)
+  can't help at all -- the robot was originally hearing and responding to
+  its own voice as if a person said it. Fixed with an explicit
+  mute-before-speaking / unmute-after-speaking-plus-grace-period protocol
+  between the Pi and phone server. The grace period needed raising from
+  1.0s to 2.0s after a SECOND round of self-hearing was observed --
+  specifically only the TAIL of the robot's sentences leaking through,
+  which pointed at Bluetooth's A2DP output buffer still draining audio
+  into the room after `paplay`'s subprocess call had already returned.
+  This is a workaround, not real acoustic echo cancellation -- true AEC
+  needs mic and speaker on the same device with a shared audio pipeline,
+  which is the direct motivation for the planned mic+speaker hardware
+  purchase (see "Hardware").
+- **Why the camera-fallback timer resets on speech STARTING, not
+  finishing:** with only a single "heard_speech" signal (fired once
+  transcription completes), someone starting to talk near the end of the
+  15s fallback window could still lose the race to a periodic_look firing
+  first, since the full pipeline (VAD hang + upload + Whisper) takes real
+  time. Fixed by adding a SEPARATE, much faster signal
+  (/speech_started, fired the instant VAD begins recording, well before
+  any transcript exists) purely to reset the fallback timer immediately.
+- **Why "speak while transcribing" (frontloading partial utterances to
+  the LLM) was proposed and NOT built:** the person suggested transcribing
+  and reasoning about speech segments before a full utterance finishes,
+  to hide dead time. Whisper is already fast (0.2-0.5s per call after the
+  VAD-gating fix), so pre-transcribing a segment saves very little in
+  practice. Worse, calling the LLM on a partial utterance reintroduces
+  EXACTLY the premature-response bug that a longer SILENCE_HANG_MS was
+  specifically added to fix (the brain replying to "I love..." as if it
+  were a complete thought). Segment-level pre-transcription alone
+  (without acting on partial results) remains a theoretically sound,
+  small optimization if revisited later, but was deliberately not built
+  given the small expected payoff and real complexity (utterance IDs,
+  fragment reassembly, boundary-word risk between segments).
+- **Why we are NOT chasing ChatGPT-voice-mode-level fluidity as a near-
+  term goal:** discussed explicitly with the person. The gap is several
+  distinct things stacked together, not one fixable "latency" number:
+  (1) native speech-to-speech audio-in/audio-out architecture (GPT-4o-
+  class) vs. our cascaded STT->LLM->TTS pipeline -- a different model
+  architecture, not a config tweak; (2) lack of streaming at any stage of
+  our cascade (full-buffer at every step) -- a real, addressable future
+  project, just not done yet; (3) genuinely unavailable given project
+  constraints -- there's no free-tier equivalent to GPT-4o's realtime
+  audio, and using OpenAI's paid Realtime API would violate the
+  project's own billing-risk-avoidance principle; (4) half-duplex by
+  deliberate design (the mute-while-speaking workaround above) --
+  interruption/full-duplex needs real AEC, which needs co-located
+  mic+speaker hardware, which doesn't exist yet. Streaming-at-each-stage
+  is the one realistically actionable lever if revisited; native audio
+  and full-duplex are consciously accepted as out of scope for now.
 
 ## Environment specifics worth knowing
 
 - Piper TTS voices, PulseAudio/systemd setup, Bluetooth `rfkill` fix, dev
-  workflow via SSH/nano, Tailscale (not yet installed) -- all unchanged
-  from the original version of this doc.
-- **NEW: University of Pittsburgh Swanson School of Engineering
-  Makerspace** (Benedum Hall basement; the "ISS" is room B06A) has free
-  solder, flux, helping hands, wire, and wire strippers available to any
-  Pitt student, open to all majors. Requires a short training first: watch
-  a video, take a quiz, then a brief in-person check-in with a mentor
-  during open hours. This is the plan for soldering the TB6612FNG header
-  pins and the motor terminal wires, since the person doesn't own a
-  soldering iron or want to buy one for occasional use.
-- **NEW: battery holder decoder** -- UM-3 = AA, UM-4 = AAA, UM-2 = C,
-  UM-1 = D. Useful if battery-holder questions come up again for other
-  parts of the build.
-- **NEW: Groq vision model** -- `qwen/qwen3.8-27b`, images cost a flat
-  2,048 input tokens each regardless of resolution, max 3 images per
-  request, 20MB max image size. Free tier limits as noted above.
+  workflow via SSH/nano, Tailscale, Pitt Makerspace soldering plan,
+  UM-3/AA battery-holder decoder -- all unchanged from the previous
+  version, still accurate.
+- **NEW: `piper-tts` installed version is 1.8.0 (`piper1-gpl`, the Home
+  Assistant rewrite), NOT the classic `rhasspy/piper` CLI.** Its Python
+  API is `from piper import PiperVoice, SynthesisConfig`. Its CLI flags
+  are also different from the classic project's (`-m/--model`,
+  `-f/--output-file`, `--length-scale`, no `--json-input`) -- don't trust
+  Piper documentation/examples found online without checking which Piper
+  project they're actually describing first.
+- **NEW: Groq free-tier Whisper (`whisper-large-v3-turbo`) -- 2,000
+  audio requests/day, same API key as the brain/vision models,
+  no new billing relationship.** This budget is what drove the VAD-gated
+  (not fixed-interval) audio design.
+- **NEW: `openai/gpt-oss-20b` (the brain model) is a reasoning model with
+  a `reasoning_effort` parameter (low/medium/high, default medium).**
+  Hidden reasoning tokens count against the SAME `max_tokens` budget as
+  the visible reply -- this caused an intermittent truncated-JSON crash
+  before `reasoning_effort="low"` and a higher `max_tokens` were set.
+  Worth remembering if the brain model is ever swapped -- different Groq
+  models have different reasoning_effort defaults/support (e.g. qwen3
+  models default to "none").
+- **NEW pip packages needed beyond the previous version's list:**
+  `requests` (used by vision_phone.py and hearing_phone.py to talk to
+  phone_camera_server.py). `piper-tts` was presumably already present
+  (it's how speech.py always worked) but is now imported as a library,
+  not just shelled out to.
+- **NEW: the phone's Safari tab now needs BOTH camera and microphone
+  permission**, and must stay open/screen-on for both to keep working, on
+  the same Wi-Fi network as the Pi (a same-network mixup was hit and
+  resolved once this session -- always check this first if the phone
+  can't connect).
 
 ## What NOT to re-suggest without re-reading the above
 
-- Don't suggest paralleling motors per driver channel as the default --
-  already deliberately avoided.
-- Don't suggest Anthropic/OpenAI paid APIs as the default without
-  acknowledging the person's stated billing-risk discomfort; Groq's free
-  tier (including its vision model) is the current choice for everything.
-- Don't suggest having the LLM be responsible for deciding to stop for
-  safety -- wrong layer, per the person's own design principle, now
-  formalized in ARCHITECTURE.md as "Reflexes gates Nerves directly."
-- Don't suggest `minutes_per_tick=60` as a good default for the simulation
-  clock -- tried and rejected for forcing events onto exact hours.
-- Don't re-guess `MotorController`'s interface as move_forward/turn
-  helper methods -- the real interface is `drive(left, right)` + `stop()`,
-  confirmed from actual source. Don't re-guess `Action`'s payload as a
-  dict -- it's `Optional[str]`, confirmed from actual source.
-- Don't suggest adding a duration parameter to the LLM's move_forward/turn
-  tools -- durations are deliberately kept out of the tool schema so the
-  LLM only ever decides intent, not mechanics.
-- Don't suggest IP Webcam (Android-only, doesn't apply -- person has an
-  iPhone) or IP Camera Lite (rejected for App Store-disclosed tracking
-  practices) for phone-as-camera. The chosen approach is the self-hosted
-  `phone_camera_server.py` + phone browser, and it's already working.
-- Don't assume driver boards, camera, IR sensors, or batteries are
-  physically wired just because the software (manual test mode) is
-  working -- as of this writing, only the chassis is assembled. Everything
-  else is purchase-decided but not confirmed wired.
+Everything in the previous version's list still applies (motor
+paralleling, paid LLM APIs, LLM-owned safety stops, `minutes_per_tick=60`,
+duration params on movement tools, IP Webcam/IP Camera Lite, and the real
+`MotorController`/`Action` interfaces). ADDITIONALLY, from this session:
+
+- Don't re-suggest fixed-interval audio chunking (e.g. "just transcribe
+  every N seconds") -- already tried in concept, rejected outright on
+  Groq Whisper free-tier budget math before it was ever built. VAD-gating
+  in the browser is the current design.
+- Don't re-suggest `subprocess.run(["piper", ...])` per call, or any
+  design that spawns a new Piper process per sentence -- confirmed as the
+  actual root cause of a 6-7s-per-reply latency bug. Use the cached
+  `PiperVoice` + `synthesize_wav()` native API instead.
+- Don't re-suggest Piper's `--json-input` flag or stdin-line-based
+  persistence tricks -- that's the OTHER Piper project (classic
+  `rhasspy/piper`); the installed `piper1-gpl` v1.8.0 doesn't have it and
+  will crash/misbehave if you try.
+- Don't re-introduce navigation/safety language into vision or brain
+  prompts ("blocking my path," "safe to proceed," turning/stopping "to
+  avoid" something) -- deliberately removed; Reflexes (not yet built)
+  owns real safety regardless of what Mind says or does.
+- Don't wrap conversation-history entries in an instructional template
+  like 'You said: "..."' -- confirmed to cause verbatim self-repetition.
+  History entries must be plain, ordinary-looking dialogue text.
+- Don't suggest calling the brain on a partial/mid-utterance transcript
+  as a latency optimization -- explicitly considered and rejected; it
+  reintroduces the exact premature-response bug that a longer
+  `SILENCE_HANG_MS` was added to fix.
+- Don't suggest OpenAI's Realtime API / GPT-4o native audio, or otherwise
+  frame "get a paid low-latency voice API" as the fix for conversational
+  fluidity -- explicitly out of scope given the project's own billing-
+  risk-avoidance principle; discussed and consciously deferred, not an
+  oversight.
+
+## Known open items / not yet resolved
+
+- Some replies to clearly conversational lines (e.g. "you already asked
+  me that," "I thought you were giving me a quiz") got `decided: nothing
+  to do` even after other fixes landed. Not yet confirmed whether the
+  conversation-memory fix already improved this or whether it's a
+  separate prompt-tuning item -- worth watching in the next test session.
+- `SPEECH_THRESHOLD=12` and `SILENCE_HANG_MS=1500` are both still rough,
+  by-ear tunables, not derived from any real measurement -- expect to
+  keep adjusting both as testing continues in different rooms/noise
+  conditions.
+- `_HALLUCINATION_DENYLIST` in hearing_phone.py is a small fixed set of
+  known Whisper filler phrases -- new junk phrases will likely surface
+  with more testing and need adding.
+- Conversation memory is session-only (an in-process deque, default 6
+  turns) -- resets every time `run_manual_test.py` restarts. No real
+  persistence across sessions yet; that's still future Memory-layer work,
+  now with a working first draft to build on rather than a blank slate.
+- `ARCHITECTURE.md` was not updated this session and is now noticeably
+  behind this file -- flagged, not done. Should be revised to reflect
+  mic-primary Perception, the first-pass Memory implementation, and the
+  removed safety/navigation framing in Mind.
+- Reflexes is still 100% unbuilt, in both hardware and software. Nothing
+  this session did should be mistaken for progress on the actual safety
+  layer -- it's still entirely "the human uses their own judgment."
