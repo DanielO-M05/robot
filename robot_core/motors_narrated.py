@@ -29,7 +29,7 @@ from robot_core.speech import speak
 
 
 class NarratedMotorController(MotorController):
-    def __init__(self, voice: str = "robot"):
+    def __init__(self, voice: str = "alan"):
         self.voice = voice
         self.left = 0.0
         self.right = 0.0
