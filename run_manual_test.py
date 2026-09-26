@@ -79,6 +79,21 @@ def _hearing_worker(hearing: PhoneHearingSystem, event_queue: "queue.Queue[Event
             event_queue.put(Event(kind="heard_speech", detail=transcript))
 
 
+def _speech_signal_worker(hearing: PhoneHearingSystem, event_queue: "queue.Queue[Event]") -> None:
+    """
+    Separate background thread, separate from _hearing_worker above.
+    Waits only for the instant "someone started talking" signal -- fires
+    well before the full audio chunk + transcript from _hearing_worker is
+    ready. Its only job is to reset the camera-fallback timer immediately,
+    so speech starting near the end of the fallback window can't lose the
+    race to a periodic_look landing first.
+    """
+    while True:
+        started = hearing.await_speech_start()
+        if started:
+            event_queue.put(Event(kind="speech_started"))
+
+
 def main() -> None:
     vision = PhoneVisionSystem()
     hearing = PhoneHearingSystem()
@@ -90,6 +105,11 @@ def main() -> None:
         target=_hearing_worker, args=(hearing, event_queue), daemon=True
     )
     listener_thread.start()
+
+    signal_thread = threading.Thread(
+        target=_speech_signal_worker, args=(hearing, event_queue), daemon=True
+    )
+    signal_thread.start()
 
     print("Manual test mode running. Ctrl+C to stop.")
     print("Mic-primary: reacting to speech as it's heard.")
@@ -104,6 +124,11 @@ def main() -> None:
                 last_activity = time.monotonic()
             except queue.Empty:
                 event = None
+
+            if event is not None and event.kind == "speech_started":
+                # Just a timer-reset signal -- no transcript yet, nothing
+                # to decide. Go straight back to waiting.
+                continue
 
             if event is None:
                 if time.monotonic() - last_activity < LOOK_INTERVAL_SECONDS:
@@ -166,7 +191,11 @@ def _execute(action, motors: NarratedMotorController) -> None:
         motors.stop()
 
     elif action.kind == "speak":
-        speak(action.payload, voice="alan")
+        speak(action.payload, voice="danny")  # TESTING: was "alan" (medium) --
+        # synth time was measured at 7+ seconds per reply, suspected cause is
+        # medium-quality voice being too heavy for the Pi's CPU. danny is
+        # low-quality but should synthesize much faster -- compare
+        # [speech-timing] synth=... between the two before deciding.
 
     elif action.kind == "look":
         pass
