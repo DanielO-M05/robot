@@ -88,6 +88,13 @@ _audio_available = threading.Condition()
 # right back in as if a person said it.
 _mic_muted = threading.Event()
 
+# Fired by the phone the INSTANT voice-activity detection starts recording
+# -- well before the eventual transcript is ready. Lets the Pi reset its
+# camera-fallback timer immediately, so someone starting to talk near the
+# end of the fallback window doesn't get preempted by a camera look.
+_speech_started_signal = threading.Condition()
+_speech_started_flag = False
+
 PAGE = f"""
 <!doctype html>
 <html>
@@ -190,6 +197,10 @@ PAGE = f"""
       function beginRecording() {{
         isSpeaking = true;
         chunks = [];
+        // Fire immediately, don't wait for a response -- this is purely a
+        // "someone just started talking" signal, sent well before the
+        // eventual transcript is ready.
+        fetch('/speech_started', {{method: 'POST'}});
         recorder = mimeType ? new MediaRecorder(micStream, {{mimeType}}) : new MediaRecorder(micStream);
         recorder.ondataavailable = e => {{ if (e.data.size > 0) chunks.push(e.data); }};
         recorder.start();
@@ -293,6 +304,36 @@ def set_muted():
     else:
         _mic_muted.clear()
     return "", 204
+
+
+@app.route("/speech_started", methods=["POST"])
+def speech_started():
+    """
+    Called by the phone's JS the instant VAD starts recording -- fired
+    fire-and-forget, doesn't wait for or care about a response.
+    """
+    global _speech_started_flag
+    with _speech_started_signal:
+        _speech_started_flag = True
+        _speech_started_signal.notify_all()
+    return "", 204
+
+
+@app.route("/await_speech_start")
+def await_speech_start():
+    """
+    Long-polls: blocks until /speech_started fires, or times out.
+    Called by a dedicated background thread on the Pi whose only job is
+    resetting the camera-fallback timer as fast as possible.
+    """
+    global _speech_started_flag
+    timeout = float(request.args.get("timeout", 10.0))
+    with _speech_started_signal:
+        if not _speech_started_flag:
+            _speech_started_signal.wait(timeout=timeout)
+        got_signal = _speech_started_flag
+        _speech_started_flag = False
+    return jsonify({"started": got_signal})
 
 
 @app.route("/next_audio_chunk")
