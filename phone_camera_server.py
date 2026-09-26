@@ -153,7 +153,11 @@ PAGE = f"""
 
     // ---------- audio: voice-activity-gated recording ----------
     const SPEECH_THRESHOLD = 12;    // RMS deviation from silence; tune by ear if too sensitive/insensitive
-    const SILENCE_HANG_MS = 1200;    // how long quiet has to persist before we consider the utterance done
+    const SILENCE_HANG_MS = 1500;   // was 800 -- too short was cutting people off mid-sentence
+                                     // during natural pauses (breaths, "um," thinking). Now that
+                                     // synth/whisper/brain are all fast (see speech.py's persistent-
+                                     // voice fix), there's real latency budget to spend here without
+                                     // the overall reply feeling sluggish.
     const MAX_RECORD_MS = 12000;    // hard cap so one long ramble can't record forever
 
     function pickAudioMimeType() {{
