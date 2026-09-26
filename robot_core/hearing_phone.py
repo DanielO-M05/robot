@@ -113,6 +113,28 @@ class PhoneHearingSystem:
     def _is_likely_hallucination(self, transcript: str) -> bool:
         return transcript.lower().strip() in _HALLUCINATION_DENYLIST
 
+    def await_speech_start(self, timeout: float = POLL_TIMEOUT_SECONDS) -> bool:
+        """
+        Blocks until phone_camera_server.py signals that voice-activity
+        detection just started recording, or times out. Returns True if
+        speech was signaled, False on timeout or a request error.
+        Purely for resetting the camera-fallback timer promptly, well
+        before a transcript is ready -- see phone_camera_server.py's
+        /speech_started and /await_speech_start docstrings.
+        """
+        try:
+            response = requests.get(
+                f"{self.camera_server_url}/await_speech_start",
+                params={"timeout": timeout},
+                verify=False,
+                timeout=timeout + 3.0,
+            )
+        except requests.exceptions.RequestException as e:
+            print(f"[hearing] Couldn't await speech-start signal: {e}")
+            return False
+        response.raise_for_status()
+        return bool(response.json().get("started"))
+
 
 def mute_microphone(camera_server_url: str = CAMERA_SERVER_URL) -> None:
     """Call right before the robot speaks, so it doesn't hear itself."""
