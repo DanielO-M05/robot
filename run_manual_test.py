@@ -43,7 +43,7 @@ import threading
 import time
 
 from robot_core.events import Event
-from robot_core.hearing_phone import PhoneHearingSystem
+from robot_core.hearing_phone import PhoneHearingSystem, mute_microphone, unmute_microphone
 from robot_core.llm_brain import LLMBrain
 from robot_core.motors_narrated import NarratedMotorController
 from robot_core.speech import speak
@@ -55,6 +55,10 @@ LOOK_INTERVAL_SECONDS = 15  # fallback only: how long to go without hearing
 DRIVE_SPEED = 1.0
 MOVE_FORWARD_SECONDS = 2.0
 TURN_SECONDS = 1.0
+
+# How long to keep the phone's mic muted after the robot stops speaking,
+# to let room echo/reverb die down before we start listening again.
+POST_SPEECH_GRACE_SECONDS = 1.0
 
 
 def _hearing_worker(hearing: PhoneHearingSystem, event_queue: "queue.Queue[Event]") -> None:
@@ -125,8 +129,13 @@ def main() -> None:
                     print(f"  -> {action.kind}({action.payload!r})")
 
             t0 = time.monotonic()
-            for action in actions:
-                _execute(action, motors)
+            mute_microphone()  # don't let the robot hear its own reply
+            try:
+                for action in actions:
+                    _execute(action, motors)
+            finally:
+                time.sleep(POST_SPEECH_GRACE_SECONDS)
+                unmute_microphone()
             t_execute = time.monotonic() - t0
 
             vision_part = f"vision={t_vision:.1f}s " if t_vision is not None else ""
