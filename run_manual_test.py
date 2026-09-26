@@ -15,13 +15,21 @@ Fixed timing lives here, not in the brain: the LLM's tool schema for
 move_forward/turn never takes a duration -- it only decides intent. How
 long a move lasts is a mechanical detail, same category as GPIO pins.
 
+Logging: every cycle prints the vision description and the brain's raw
+decided actions as TEXT to the terminal. Only "speak" actions (and the
+built-in move/turn narration in motors_narrated.py) ever produce actual
+audio -- the [vision] and [brain] print lines below are silent, for your
+eyes only.
+
 Usage:
     1. In one terminal/session, run the self-hosted camera server (see its
        own docstring for the one-time cert setup):
            python3 phone_camera_server.py
     2. On your phone, in Safari, visit https://<pi-ip>:5000, accept the
        self-signed cert warning, and allow camera access. Leave that tab
-       open and the screen on.
+       open and the screen on. HOLD THE PHONE UPRIGHT, camera facing
+       roughly forward/across the room -- not lying flat, or you'll just
+       get ceiling/table shots.
     3. Make sure GROQ_API_KEY is set (llm_brain.py and vision_phone.py
        both load it via python-dotenv, so a .env file in the repo root
        works, same as your existing setup).
@@ -63,7 +71,13 @@ def main() -> None:
 
             event = Event(kind="periodic_look", detail=description)
             actions = brain.decide(event)
-            print(f"[brain] {actions}")
+
+            if not actions:
+                print("[brain] decided: nothing to do")
+            else:
+                print(f"[brain] decided {len(actions)} action(s):")
+                for action in actions:
+                    print(f"  -> {action.kind}({action.payload!r})")
 
             for action in actions:
                 _execute(action, motors)
