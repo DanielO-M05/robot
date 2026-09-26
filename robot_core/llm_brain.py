@@ -1,5 +1,6 @@
 import os
 import json
+import collections
 from dotenv import load_dotenv
 from groq import Groq, BadRequestError, APIError
 
@@ -111,9 +112,17 @@ SYSTEM_PROMPT = (
     "children's-book robot character would."
 )
 class LLMBrain:
-    def __init__(self, model="openai/gpt-oss-20b"):
+    def __init__(self, model="openai/gpt-oss-20b", history_turns: int = 6):
         self.model = model
-        
+        # Rolling short-term conversation memory. Without this, every
+        # call was completely stateless -- the real reason replies kept
+        # losing the thread (e.g. asking "what's your favorite thing
+        # about the era" got an unrelated non-sequitur back: the model
+        # never saw "the roaring 20s" was still the topic, because it
+        # never saw anything before the current utterance). Bounded so
+        # the prompt doesn't grow forever across a long session.
+        self.history = collections.deque(maxlen=history_turns * 2)
+
     def decide(self, event) -> list[Action]:
         if event.kind == "heard_speech":
             content = f'A person just said to you: "{event.detail}"'
@@ -124,20 +133,21 @@ class LLMBrain:
             if getattr(event, "detail", None):
                 content += f"\nDetail: {event.detail}"
 
+        messages = (
+            [{"role": "system", "content": SYSTEM_PROMPT}]
+            + list(self.history)
+            + [{"role": "user", "content": content}]
+        )
+
         try:
             response = client.chat.completions.create(
                 model=self.model,
                 max_tokens=500,
                 reasoning_effort="low",
-                messages=[
-                    {"role": "system", "content": SYSTEM_PROMPT},
-                    {"role": "user", "content": content},
-                ],
+                messages=messages,
                 tools=TOOLS,
             )
         except (BadRequestError, APIError) as e:
-            # The model occasionally generates malformed tool-call JSON.
-            # Fail safe: do nothing this cycle rather than crash the loop.
             print(f"[llm_brain] Groq request failed, skipping this cycle: {e}")
             return []
 
@@ -168,4 +178,28 @@ class LLMBrain:
             elif name == "look":
                 actions.append(Action("look"))
 
+        # Record this turn so the NEXT call has context. Stored as plain
+        # text rather than replaying raw tool_calls -- Groq's API expects
+        # a matching tool-result message for every tool_call in history,
+        # which we'd have to fake; a plain description is simpler and
+        # equally useful for keeping the thread.
+        self.history.append({"role": "user", "content": content})
+        if actions:
+            summary = "; ".join(_describe_action(a) for a in actions)
+            self.history.append({"role": "assistant", "content": summary})
+
         return actions
+
+
+def _describe_action(action: Action) -> str:
+    if action.kind == "speak":
+        return f'You said: "{action.payload}"'
+    if action.kind == "turn":
+        return f"You turned {action.payload}"
+    if action.kind == "move_forward":
+        return "You moved forward"
+    if action.kind == "stop":
+        return "You stopped"
+    if action.kind == "look":
+        return "You looked around"
+    return f"You did: {action.kind}"
