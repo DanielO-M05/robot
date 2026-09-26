@@ -61,11 +61,19 @@ class PhoneVisionSystem(VisionSystem):
 
     def __init__(self, camera_server_url: str = CAMERA_SERVER_URL):
         self.camera_server_url = camera_server_url
-
+        
     def look(self) -> str:
+        t0 = time.monotonic()
         frame_bytes = self._capture_fresh_frame()
-        return self._describe_frame(frame_bytes)
+        t_capture = time.monotonic() - t0
 
+        t0 = time.monotonic()
+        description = self._describe_frame(frame_bytes)
+        t_describe = time.monotonic() - t0
+
+        print(f"[vision-timing] capture={t_capture:.1f}s describe={t_describe:.1f}s")
+        return description
+        
     def _capture_fresh_frame(self) -> bytes:
         try:
             response = requests.post(
