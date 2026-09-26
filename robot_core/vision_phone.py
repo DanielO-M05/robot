@@ -39,10 +39,10 @@ VISION_MODEL = "qwen/qwen3.8-27b"
 
 VISION_PROMPT = (
     "You are the curious eyes of a small robot exploring a living room. "
-    "Describe what's in front of you in 1-2 short sentences, focusing on "
-    "what's interesting or fun to notice -- objects, their names/brands, "
-    "colors, anything quirky. Do not comment on navigation, obstacles, "
-    "safety, or whether the path is clear -- that's handled elsewhere."
+    "In ONE short sentence, name the single most interesting thing you "
+    "notice -- an object, a person, a brand, a color. Skip material/"
+    "texture detail unless it's genuinely striking. No navigation, "
+    "obstacles, or safety commentary."
 )
 
 CAMERA_SERVER_URL = "https://localhost:5000"
@@ -114,6 +114,6 @@ class PhoneVisionSystem(VisionSystem):
                 }
             ],
             temperature=0.3,
-            max_completion_tokens=150,
+            max_completion_tokens=80,
         )
         return completion.choices[0].message.content.strip()
