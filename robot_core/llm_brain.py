@@ -1,7 +1,7 @@
 import os
 import json
 from dotenv import load_dotenv
-from groq import Groq
+from groq import Groq, BadRequestError, APIError
 
 from robot_core.brain import Action
 
@@ -81,15 +81,21 @@ class LLMBrain:
         if getattr(event, "detail", None):
             content += f"\nDetail: {event.detail}"
 
-        response = client.chat.completions.create(
-            model=self.model,
-            max_tokens=300,
-            messages=[
-                {"role": "system", "content": SYSTEM_PROMPT},
-                {"role": "user", "content": content},
-            ],
-            tools=TOOLS,
-        )
+        try:
+            response = client.chat.completions.create(
+                model=self.model,
+                max_tokens=300,
+                messages=[
+                    {"role": "system", "content": SYSTEM_PROMPT},
+                    {"role": "user", "content": content},
+                ],
+                tools=TOOLS,
+            )
+        except (BadRequestError, APIError) as e:
+            # The model occasionally generates malformed tool-call JSON.
+            # Fail safe: do nothing this cycle rather than crash the loop.
+            print(f"[llm_brain] Groq request failed, skipping this cycle: {e}")
+            return []
 
         actions = []
         message = response.choices[0].message
@@ -97,16 +103,24 @@ class LLMBrain:
 
         for call in tool_calls:
             name = call.function.name
-            args = json.loads(call.function.arguments) if call.function.arguments else {}
+            try:
+                args = json.loads(call.function.arguments) if call.function.arguments else {}
+            except json.JSONDecodeError:
+                print(f"[llm_brain] Couldn't parse arguments for '{name}', skipping that call.")
+                continue
 
             if name == "speak":
-                actions.append(Action("speak", args["text"]))
+                text = args.get("text")
+                if text:
+                    actions.append(Action("speak", text))
             elif name == "stop":
                 actions.append(Action("stop"))
             elif name == "move_forward":
                 actions.append(Action("move_forward"))
             elif name == "turn":
-                actions.append(Action("turn", args["direction"]))
+                direction = args.get("direction")
+                if direction:
+                    actions.append(Action("turn", direction))
             elif name == "look":
                 actions.append(Action("look"))
 
