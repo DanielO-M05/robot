@@ -58,7 +58,13 @@ TURN_SECONDS = 1.0
 
 # How long to keep the phone's mic muted after the robot stops speaking,
 # to let room echo/reverb die down before we start listening again.
-POST_SPEECH_GRACE_SECONDS = 1.0
+# NOTE: paplay likely returns as soon as it hands audio off to the
+# Bluetooth stack, not when the speaker has actually finished playing --
+# A2DP has its own internal buffer with real playback lag. If echo shows
+# up specifically at the END of the robot's sentences (tail getting
+# picked up, not the whole thing), that's this buffer draining slower
+# than this grace period -- raise it further.
+POST_SPEECH_GRACE_SECONDS = 2.0
 
 
 def _hearing_worker(hearing: PhoneHearingSystem, event_queue: "queue.Queue[Event]") -> None:
