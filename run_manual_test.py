@@ -127,7 +127,7 @@ def _execute(action, motors: NarratedMotorController) -> None:
         motors.stop()
 
     elif action.kind == "speak":
-        speak(action.payload, voice="robot")
+        speak(action.payload, voice="alan")
 
     elif action.kind == "look":
         pass  # already handled -- the loop itself calls vision.look()

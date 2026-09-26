@@ -2,11 +2,11 @@ import subprocess
 import wave
 
 OUTPUT_FILE = "/tmp/speech.wav"
-LEAD_SILENCE_MS = 400
+LEAD_SILENCE_MS = 100
 
 VOICES = {
-    "robot": "voices/en_US-danny-low.onnx",
-    "narrator": "voices/en_GB-alan-medium.onnx",
+    "danny": "voices/en_US-danny-low.onnx",
+    "alan": "voices/en_GB-alan-medium.onnx",
 }
 
 
@@ -24,7 +24,7 @@ def _prepend_silence(wav_path: str, silence_ms: int):
         w.writeframes(silence_bytes + frames)
 
 
-def speak(text: str, voice: str = "robot"):
+def speak(text: str, voice: str = "alan"):
     """Convert text to speech and play it through the connected speaker."""
     model_path = VOICES[voice]
     subprocess.run(

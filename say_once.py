@@ -26,8 +26,8 @@ import wave
 
 from robot_core.speech import VOICES
 
-DANNY_VOICE = VOICES["robot"]
-LEAD_SILENCE_MS = 400
+DANNY_VOICE = VOICES["alan"]
+LEAD_SILENCE_MS = 100
 
 
 def _prepend_silence(wav_path: str, silence_ms: int) -> None:
