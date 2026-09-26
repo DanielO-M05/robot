@@ -66,6 +66,8 @@ def main() -> None:
 
     try:
         while True:
+            cycle_start = time.monotonic()
+
             description = vision.look()
             print(f"[vision] {description}")
 
@@ -82,10 +84,29 @@ def main() -> None:
             for action in actions:
                 _execute(action, motors)
 
-            time.sleep(LOOK_INTERVAL_SECONDS)
+            # We assume one full cycle (capture -> vision -> brain -> any
+            # narrated actions, including speak()) finishes comfortably
+            # inside LOOK_INTERVAL_SECONDS. Because this loop is single-
+            # threaded and fully synchronous, two speak() calls can never
+            # literally overlap -- the real risk is DRIFT: sleeping a flat
+            # LOOK_INTERVAL_SECONDS every time would let cycles creep later
+            # and later if any step runs long. Sleeping for the remaining
+            # time instead prevents that drift, and we warn loudly if a
+            # cycle ever exceeds the interval outright.
+            elapsed = time.monotonic() - cycle_start
+            remaining = LOOK_INTERVAL_SECONDS - elapsed
+            if remaining <= 0:
+                print(
+                    f"[timing] WARNING: cycle took {elapsed:.1f}s, longer "
+                    f"than the {LOOK_INTERVAL_SECONDS}s interval. Starting "
+                    "next cycle immediately -- if you see this often, raise "
+                    "LOOK_INTERVAL_SECONDS or investigate what's slow "
+                    "(Groq API latency is the usual culprit)."
+                )
+            else:
+                time.sleep(remaining)
     except KeyboardInterrupt:
         print("\nStopped.")
-
 
 def _execute(action, motors: NarratedMotorController) -> None:
     if action.kind == "move_forward":
