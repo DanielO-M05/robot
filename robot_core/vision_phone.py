@@ -1,20 +1,23 @@
 """
 PhoneVisionSystem -- VisionSystem implementation backed by a phone's camera,
-served over local WiFi via the IP Webcam Android app (or similar), described
-using Groq's free-tier vision model (qwen/qwen3.8-27b).
+captured via the self-hosted phone_camera_server.py (your phone's browser
+uploads frames to a local file on the Pi -- no third-party app involved),
+described using Groq's free-tier vision model (qwen/qwen3.8-27b).
 
 Matches robot_core/vision.py's real interface exactly:
 
     class VisionSystem(ABC):
         def look(self) -> str: ...
 
-Save this as robot_core/vision_phone.py, alongside vision.py.
+Requires phone_camera_server.py to be running separately (see that file's
+docstring) and your phone's browser tab open and uploading frames to it.
 """
 
 import base64
 import os
+import time
+from pathlib import Path
 
-import requests
 from dotenv import load_dotenv
 from groq import Groq
 
@@ -36,27 +39,31 @@ VISION_PROMPT = (
 
 class PhoneVisionSystem(VisionSystem):
     """
-    Pulls a single still frame from a phone running the IP Webcam app (or
-    similar 'phone as IP camera' app) and asks a vision-capable LLM to
-    describe it.
-
-    IP Webcam (Android, free) exposes a single-frame JPEG at:
-        http://<phone-ip>:8080/shot.jpg
-    <phone-ip> is shown on the app's main screen once you start its server.
-    Phone and Pi must be on the same WiFi network.
+    Reads the most recently uploaded frame from phone_camera_server.py
+    (written to a local file) and asks a vision-capable LLM to describe it.
     """
 
-    def __init__(self, phone_shot_url: str):
-        self.phone_shot_url = phone_shot_url
+    def __init__(self, frame_path: str = "/tmp/latest_frame.jpg", max_age_seconds: float = 10.0):
+        self.frame_path = Path(frame_path)
+        self.max_age_seconds = max_age_seconds
 
     def look(self) -> str:
-        frame_bytes = self._grab_frame()
+        frame_bytes = self._read_latest_frame()
         return self._describe_frame(frame_bytes)
 
-    def _grab_frame(self) -> bytes:
-        response = requests.get(self.phone_shot_url, timeout=5)
-        response.raise_for_status()
-        return response.content
+    def _read_latest_frame(self) -> bytes:
+        if not self.frame_path.exists():
+            raise RuntimeError(
+                f"No frame found at {self.frame_path}. Is phone_camera_server.py "
+                "running, and is your phone's browser tab open and uploading?"
+            )
+        age = time.time() - self.frame_path.stat().st_mtime
+        if age > self.max_age_seconds:
+            raise RuntimeError(
+                f"Latest frame is {age:.0f}s old (>{self.max_age_seconds}s). "
+                "Check the phone's browser tab is still open and uploading."
+            )
+        return self.frame_path.read_bytes()
 
     def _describe_frame(self, frame_bytes: bytes) -> str:
         b64_image = base64.b64encode(frame_bytes).decode("utf-8")
