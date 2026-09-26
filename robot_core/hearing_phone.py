@@ -12,6 +12,7 @@ is ever built, factor out a HearingSystem ABC the same way vision.py does.
 """
 
 import os
+import time
 
 import requests
 import urllib3
@@ -63,7 +64,12 @@ class PhoneHearingSystem:
         if chunk is None:
             return None
         audio_bytes, mime_type = chunk
+
+        t0 = time.monotonic()
         transcript = self._transcribe(audio_bytes, mime_type)
+        t_whisper = time.monotonic() - t0
+        print(f"[hearing-timing] whisper={t_whisper:.1f}s")
+
         if self._is_likely_hallucination(transcript):
             return None
         return transcript
@@ -106,3 +112,25 @@ class PhoneHearingSystem:
 
     def _is_likely_hallucination(self, transcript: str) -> bool:
         return transcript.lower().strip() in _HALLUCINATION_DENYLIST
+
+
+def mute_microphone(camera_server_url: str = CAMERA_SERVER_URL) -> None:
+    """Call right before the robot speaks, so it doesn't hear itself."""
+    _set_muted(True, camera_server_url)
+
+
+def unmute_microphone(camera_server_url: str = CAMERA_SERVER_URL) -> None:
+    """Call once the robot's done speaking (plus a grace period for room echo)."""
+    _set_muted(False, camera_server_url)
+
+
+def _set_muted(muted: bool, camera_server_url: str) -> None:
+    try:
+        requests.post(
+            f"{camera_server_url}/set_muted",
+            json={"muted": muted},
+            verify=False,
+            timeout=3.0,
+        )
+    except requests.exceptions.RequestException as e:
+        print(f"[hearing] Couldn't {'mute' if muted else 'unmute'} the phone mic: {e}")
