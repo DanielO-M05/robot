@@ -113,7 +113,8 @@ class LLMBrain:
         try:
             response = client.chat.completions.create(
                 model=self.model,
-                max_tokens=300,
+                max_tokens=500,
+                reasoning_effort="low",
                 messages=[
                     {"role": "system", "content": SYSTEM_PROMPT},
                     {"role": "user", "content": content},
