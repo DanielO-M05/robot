@@ -123,20 +123,23 @@ class LLMBrain:
         # the prompt doesn't grow forever across a long session.
         self.history = collections.deque(maxlen=history_turns * 2)
 
-    def decide(self, event) -> list[Action]:
+        def decide(self, event) -> list[Action]:
         if event.kind == "heard_speech":
-            content = f'A person just said to you: "{event.detail}"'
+            live_content = f'A person just said to you: "{event.detail}"'
+            history_user_content = event.detail  # plain, no instructional wrapper
         elif event.kind == "periodic_look":
-            content = f"You just looked around and noticed: {event.detail}"
+            live_content = f"You just looked around and noticed: {event.detail}"
+            history_user_content = f"(noticed: {event.detail})"
         else:
-            content = f"Event observed: {event.kind}"
+            live_content = f"Event observed: {event.kind}"
             if getattr(event, "detail", None):
-                content += f"\nDetail: {event.detail}"
+                live_content += f"\nDetail: {event.detail}"
+            history_user_content = live_content
 
         messages = (
             [{"role": "system", "content": SYSTEM_PROMPT}]
             + list(self.history)
-            + [{"role": "user", "content": content}]
+            + [{"role": "user", "content": live_content}]
         )
 
         try:
@@ -178,15 +181,15 @@ class LLMBrain:
             elif name == "look":
                 actions.append(Action("look"))
 
-        # Record this turn so the NEXT call has context. Stored as plain
-        # text rather than replaying raw tool_calls -- Groq's API expects
-        # a matching tool-result message for every tool_call in history,
-        # which we'd have to fake; a plain description is simpler and
-        # equally useful for keeping the thread.
-        self.history.append({"role": "user", "content": content})
-        if actions:
-            summary = "; ".join(_describe_action(a) for a in actions)
-            self.history.append({"role": "assistant", "content": summary})
+        # Plain-format history: just the raw utterance and, if the robot
+        # spoke, just the spoken text -- no meta-wrapper. That's what
+        # ordinary dialogue looks like, and it's what fixed a verbatim-
+        # repeat bug caused by the old "You said: ..." template pattern
+        # showing up in the model's own history and getting echoed back.
+        self.history.append({"role": "user", "content": history_user_content})
+        speak_actions = [a for a in actions if a.kind == "speak"]
+        if speak_actions:
+            self.history.append({"role": "assistant", "content": speak_actions[0].payload})
 
         return actions
 
