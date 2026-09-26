@@ -123,7 +123,7 @@ class LLMBrain:
         # the prompt doesn't grow forever across a long session.
         self.history = collections.deque(maxlen=history_turns * 2)
 
-        def decide(self, event) -> list[Action]:
+    def decide(self, event) -> list[Action]:
         if event.kind == "heard_speech":
             live_content = f'A person just said to you: "{event.detail}"'
             history_user_content = event.detail  # plain, no instructional wrapper
