@@ -110,14 +110,14 @@ PAGE = f"""
     const status = document.getElementById('status');
 
     // ---------- shared setup ----------
-    navigator.mediaDevices.getUserMedia({
-        video: {facingMode: 'environment'},
-        audio: {
+    navigator.mediaDevices.getUserMedia({{
+        video: {{facingMode: 'environment'}},
+        audio: {{
           echoCancellation: false,
           noiseSuppression: false,
           autoGainControl: false
-        }
-      })
+        }}
+      }})
       .then(stream => {{
         document.getElementById('v').srcObject = stream;
         status.textContent = 'Ready. Watching for capture requests and listening for speech...';
