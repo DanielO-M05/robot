@@ -19,7 +19,7 @@ import json
 SAMPLE_RATE = 44100
 N_BURSTS = 8
 BURST_DURATION_MS = 80
-GAP_SECONDS = 3.0          # time between the START of consecutive bursts' silence gap
+GAP_SECONDS = .8          # time between the START of consecutive bursts' silence gap
 LEAD_IN_SECONDS = 1.0      # silence before the first burst, so VAD/recording has settled
 F_START = 1000
 F_END = 4000
