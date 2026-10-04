@@ -159,7 +159,7 @@ PAGE = f"""
     }}
 
     // ---------- audio: voice-activity-gated recording ----------
-    const SPEECH_THRESHOLD = 1;    // RMS deviation from silence; tune by ear if too sensitive/insensitive
+    const SPEECH_THRESHOLD = 12;    // RMS deviation from silence; tune by ear if too sensitive/insensitive
     const SILENCE_HANG_MS = 1500;   // was 800 -- too short was cutting people off mid-sentence
                                      // during natural pauses (breaths, "um," thinking). Now that
                                      // synth/whisper/brain are all fast (see speech.py's persistent-
