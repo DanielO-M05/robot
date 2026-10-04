@@ -18,11 +18,11 @@ import json
 
 SAMPLE_RATE = 44100
 N_BURSTS = 8
-BURST_DURATION_MS = 80
+BURST_DURATION_MS = 120
 GAP_SECONDS = .8          # time between the START of consecutive bursts' silence gap
 LEAD_IN_SECONDS = 1.0      # silence before the first burst, so VAD/recording has settled
-F_START = 800
-F_END = 2000
+F_START = 400
+F_END = 1200
 AMPLITUDE = 0.8            # fraction of int16 full scale; leaves headroom, avoids clipping
 
 
